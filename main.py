@@ -11,14 +11,22 @@ app = FastAPI(
     version="1.2.0"
 )
 
-# Enable CORS for frontend compatibility
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+# --- 1. AGGRESSIVE CORS FIX ---
+# This ensures Swagger UI and other websites can talk to your API without "Failed to fetch"
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["*"]
+)
 
-# --- DATABASE SETUP ---
+# --- 2. DATABASE SETUP ---
 DB_URI = "postgresql://neondb_owner:npg_LHuVs1Od5crb@ep-raspy-union-a47lrzc8.us-east-1.aws.neon.tech/neondb?sslmode=require"
 engine = create_engine(DB_URI, pool_pre_ping=True)
 
-# --- STARTUP FIX (Bypasses Neon SQL Editor Glitches) ---
+# --- 3. STARTUP FIX (Bypasses Neon SQL Editor Glitches) ---
 @app.on_event("startup")
 def startup_event():
     with engine.connect() as conn:
@@ -43,19 +51,20 @@ def startup_event():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
 
+            -- This ensures you always have a working key for your demo
             INSERT INTO api_users (organization_name, email, api_key, request_limit)
-            VALUES ('Intern Test', 'test@example.com', 'test_key_123', 5000)
+            VALUES ('Intern Demo', 'demo@example.com', 'capstone_demo_2024', 5000)
             ON CONFLICT DO NOTHING;
         """))
         conn.commit()
 
-# --- MODELS ---
+# --- 4. MODELS ---
 class UserRegistration(BaseModel):
     organization_name: str
     email: EmailStr
     plan_type: str = "free"
 
-# --- AUTHENTICATION ---
+# --- 5. AUTHENTICATION ---
 async def verify_api_key(api_key: str = Header(None, alias="api-key")):
     if not api_key:
         raise HTTPException(status_code=401, detail="Missing api-key in Header")
@@ -66,18 +75,24 @@ async def verify_api_key(api_key: str = Header(None, alias="api-key")):
         
         if not user:
             raise HTTPException(status_code=401, detail="Invalid API Key")
+        
+        # Check quota
         if user['current_usage'] >= user['request_limit']:
-            raise HTTPException(status_code=429, detail="Limit reached")
+            raise HTTPException(status_code=429, detail="API Limit reached")
             
-        conn.execute(text("UPDATE api_users SET current_usage = current_usage + 1 WHERE api_key = :k"), {"k": api_key})
+        # Log usage count
+        conn.execute(
+            text("UPDATE api_users SET current_usage = current_usage + 1 WHERE api_key = :k"), 
+            {"k": api_key}
+        )
         conn.commit()
         return user
 
-# --- ENDPOINTS ---
+# --- 6. ENDPOINTS ---
 
 @app.get("/")
 def home():
-    return {"status": "Online", "auth": "Required", "docs": "/docs"}
+    return {"status": "Online", "gateway": "SaaS v1.2", "docs": "/docs"}
 
 @app.post("/register")
 def register(user: UserRegistration):
@@ -85,17 +100,20 @@ def register(user: UserRegistration):
     limit = 1000 if user.plan_type == "free" else 10000
     with engine.connect() as conn:
         conn.execute(
-            text("INSERT INTO api_users (organization_name, email, api_key, request_limit, plan_type) VALUES (:o, :e, :k, :l, :p)"),
+            text("""
+                INSERT INTO api_users (organization_name, email, api_key, request_limit, plan_type) 
+                VALUES (:o, :e, :k, :l, :p)
+            """),
             {"o": user.organization_name, "e": user.email, "k": new_key, "l": limit, "p": user.plan_type}
         )
         conn.commit()
-    return {"api_key": new_key, "limit": limit}
+    return {"api_key": new_key, "message": "Save this key for API access!"}
 
 @app.get("/search")
 def search(q: str, user=Depends(verify_api_key)):
     start_time = time.time()
     with engine.connect() as conn:
-        # Standard ILIKE search (Works even without the pg_trgm extension)
+        # Using standard ILIKE to bypass the pg_trgm extension requirement
         query = text("""
             SELECT v.village_name as name, d.district_name, s.state_name, 'village' as type
             FROM villages v
@@ -107,7 +125,10 @@ def search(q: str, user=Depends(verify_api_key)):
         results = conn.execute(query, {"q": f"%{q}%"}).mappings().all()
     
     duration = (time.time() - start_time) * 1000
-    return {"results": [dict(r) for r in results], "latency": f"{round(duration, 2)}ms"}
+    return {
+        "results": [dict(r) for r in results],
+        "meta": {"took_ms": round(duration, 2), "quota_used": f"{user['current_usage'] + 1}/{user['request_limit']}"}
+    }
 
 @app.get("/states")
 def get_states(user=Depends(verify_api_key)):
