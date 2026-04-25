@@ -1,65 +1,83 @@
 from fastapi import FastAPI, HTTPException, Header, Depends
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import create_engine, text
-import os
+from pydantic import BaseModel, EmailStr
+import secrets
+import time
 
-app = FastAPI(title="India Location API - SaaS Edition")
+app = FastAPI(
+    title="India Location API - SaaS Edition",
+    description="Professional B2B API with Usage Analytics",
+    version="1.1.0"
+)
 
-# --- DATABASE SETUP ---
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+# --- DATABASE CONNECTION ---
 DB_URI = "postgresql://neondb_owner:npg_LHuVs1Od5crb@ep-raspy-union-a47lrzc8.us-east-1.aws.neon.tech/neondb?sslmode=require"
 engine = create_engine(DB_URI)
 
-# --- SAAS SECURITY LAYER (Dynamic Tracking) ---
-def verify_api_key(api_key: str = Header(None)):
+# --- MODELS ---
+class UserRegistration(BaseModel):
+    organization_name: str
+    email: EmailStr
+    plan_type: str = "free"
+
+# --- ANALYTICS HELPER ---
+def log_usage(api_key: str, endpoint: str, duration: float, status: int):
+    with engine.connect() as conn:
+        conn.execute(
+            text("INSERT INTO api_usage_logs (api_key, endpoint, response_time_ms, status_code) VALUES (:k, :e, :t, :s)"),
+            {"k": api_key, "e": endpoint, "t": duration, "s": status}
+        )
+        conn.commit()
+
+# --- AUTHENTICATION ---
+async def verify_key(api_key: str = Header(None, alias="api-key")):
     if not api_key:
-        raise HTTPException(status_code=401, detail="API Key missing in header")
+        raise HTTPException(status_code=401, detail="API Key missing")
     
     with engine.connect() as conn:
-        # 1. Check if the key exists in our new api_users table
-        query = text("SELECT organization_name, plan_type, request_limit, current_usage FROM api_users WHERE api_key = :key")
-        user = conn.execute(query, {"key": api_key}).mappings().first()
+        query = text("SELECT * FROM api_users WHERE api_key = :k AND is_active = true")
+        user = conn.execute(query, {"k": api_key}).mappings().first()
         
         if not user:
             raise HTTPException(status_code=401, detail="Invalid API Key")
-        
-        # 2. Check if they hit their SaaS limit (PRD Criterion 1.3)
         if user['current_usage'] >= user['request_limit']:
-            raise HTTPException(status_code=429, detail="Monthly limit reached. Please upgrade your plan.")
-        
-        # 3. Log the usage (Increment count)
-        conn.execute(
-            text("UPDATE api_users SET current_usage = current_usage + 1 WHERE api_key = :key"),
-            {"key": api_key}
-        )
-        conn.commit() # Critical for saving the count
-        
+            raise HTTPException(status_code=429, detail="Rate limit exceeded")
+            
+        # Update usage count
+        conn.execute(text("UPDATE api_users SET current_usage = current_usage + 1 WHERE api_key = :k"), {"k": api_key})
+        conn.commit()
         return user
 
 # --- ENDPOINTS ---
-
 @app.get("/")
-def home():
-    return {"message": "Welcome to the India Location SaaS API", "status": "Online"}
+def health_check():
+    return {"status": "Online", "gateway": "SaaS v1.1"}
+
+@app.post("/register")
+def register(user: UserRegistration):
+    new_key = f"india_loc_{secrets.token_urlsafe(16)}"
+    limit = 1000 if user.plan_type == "free" else 10000
+    
+    with engine.connect() as conn:
+        conn.execute(
+            text("INSERT INTO api_users (organization_name, email, api_key, request_limit, plan_type) VALUES (:o, :e, :k, :l, :p)"),
+            {"o": user.organization_name, "e": user.email, "k": new_key, "l": limit, "p": user.plan_type}
+        )
+        conn.commit()
+    return {"api_key": new_key, "message": "Save this key! It will not be shown again."}
 
 @app.get("/search")
-def search_location(q: str, user_data=Depends(verify_api_key)):
-    """Search with SaaS tracking and super-fast Trigram Indexing."""
-    if len(q) < 3:
-        return {"results": [], "message": "Type at least 3 characters"}
-        
+def search(q: str, user=Depends(verify_key)):
+    start = time.time()
     with engine.connect() as conn:
-        # Village Search using the GIN index we built
-        v_query = text("""
-            SELECT v.village_name as name, d.district_name, s.state_name, 'village' as type 
-            FROM villages v
-            JOIN districts d ON v.district_id = d.district_id
-            JOIN states s ON d.state_id = s.state_id
-            WHERE v.village_name ILIKE :q LIMIT 10
-        """)
-        villages = conn.execute(v_query, {"q": f"%{q}%"}).mappings().all()
-        
-        return {
-            "query": q,
-            "organization": user_data['organization_name'],
-            "usage_stats": f"{user_data['current_usage'] + 1} / {user_data['request_limit']}",
-            "results": villages
-        }
+        res = conn.execute(
+            text("SELECT village_name, taluka_name, pincode FROM villages WHERE village_name ILIKE :q LIMIT 10"),
+            {"q": f"%{q}%"}
+        ).mappings().all()
+    
+    duration = (time.time() - start) * 1000
+    log_usage(user['api_key'], "/search", duration, 200)
+    return {"results": [dict(r) for r in res], "took_ms": round(duration, 2)}
