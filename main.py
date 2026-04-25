@@ -4,7 +4,6 @@ from sqlalchemy import create_engine, text
 from pydantic import BaseModel, EmailStr
 import secrets
 import time
-from typing import List, Optional
 
 app = FastAPI(
     title="India Location API - SaaS Edition",
@@ -13,49 +12,51 @@ app = FastAPI(
 )
 
 # Enable CORS for frontend compatibility
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 # --- DATABASE SETUP ---
-# Standard Neon connection string without channel_binding for maximum stability
 DB_URI = "postgresql://neondb_owner:npg_LHuVs1Od5crb@ep-raspy-union-a47lrzc8.us-east-1.aws.neon.tech/neondb?sslmode=require"
 engine = create_engine(DB_URI, pool_pre_ping=True)
+
+# --- STARTUP FIX (Bypasses Neon SQL Editor Glitches) ---
+@app.on_event("startup")
+def startup_event():
+    with engine.connect() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS api_users (
+                user_id SERIAL PRIMARY KEY,
+                organization_name VARCHAR(255),
+                email VARCHAR(255) UNIQUE,
+                api_key VARCHAR(100) UNIQUE,
+                plan_type VARCHAR(50) DEFAULT 'free',
+                request_limit INTEGER DEFAULT 1000,
+                current_usage INTEGER DEFAULT 0,
+                is_active BOOLEAN DEFAULT true
+            );
+            
+            CREATE TABLE IF NOT EXISTS api_usage_logs (
+                log_id SERIAL PRIMARY KEY,
+                api_key VARCHAR(100),
+                endpoint VARCHAR(100),
+                response_time_ms FLOAT,
+                status_code INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            INSERT INTO api_users (organization_name, email, api_key, request_limit)
+            VALUES ('Intern Test', 'test@example.com', 'test_key_123', 5000)
+            ON CONFLICT DO NOTHING;
+        """))
+        conn.commit()
 
 # --- MODELS ---
 class UserRegistration(BaseModel):
     organization_name: str
     email: EmailStr
-    plan_type: str = "free"  # free, premium, or pro
+    plan_type: str = "free"
 
-class SearchResult(BaseModel):
-    name: str
-    district_name: str
-    state_name: str
-    type: str
-
-# --- ANALYTICS LOGGING ---
-def log_usage(api_key: str, endpoint: str, duration: float, status: int):
-    """Saves API performance metrics to the database"""
-    try:
-        with engine.connect() as conn:
-            conn.execute(
-                text("""
-                    INSERT INTO api_usage_logs (api_key, endpoint, response_time_ms, status_code)
-                    VALUES (:k, :e, :t, :s)
-                """),
-                {"k": api_key, "e": endpoint, "t": duration, "s": status}
-            )
-            conn.commit()
-    except Exception as e:
-        print(f"Logging error: {e}")
-
-# --- SECURITY MIDDLEWARE ---
+# --- AUTHENTICATION ---
 async def verify_api_key(api_key: str = Header(None, alias="api-key")):
-    """Validates the B2B API Key and manages request quotas"""
     if not api_key:
         raise HTTPException(status_code=401, detail="Missing api-key in Header")
     
@@ -65,15 +66,10 @@ async def verify_api_key(api_key: str = Header(None, alias="api-key")):
         
         if not user:
             raise HTTPException(status_code=401, detail="Invalid API Key")
-        
         if user['current_usage'] >= user['request_limit']:
-            raise HTTPException(status_code=429, detail="Monthly request quota reached")
+            raise HTTPException(status_code=429, detail="Limit reached")
             
-        # Increment usage counter
-        conn.execute(
-            text("UPDATE api_users SET current_usage = current_usage + 1 WHERE api_key = :k"),
-            {"k": api_key}
-        )
+        conn.execute(text("UPDATE api_users SET current_usage = current_usage + 1 WHERE api_key = :k"), {"k": api_key})
         conn.commit()
         return user
 
@@ -81,38 +77,25 @@ async def verify_api_key(api_key: str = Header(None, alias="api-key")):
 
 @app.get("/")
 def home():
-    return {"status": "Online", "message": "India Location SaaS API v1.2", "docs": "/docs"}
+    return {"status": "Online", "auth": "Required", "docs": "/docs"}
 
 @app.post("/register")
-def register_organization(user: UserRegistration):
-    """Endpoint for new B2B partners to get an API Key"""
+def register(user: UserRegistration):
     new_key = f"india_loc_{secrets.token_urlsafe(16)}"
-    # Set limits based on internship plan logic
     limit = 1000 if user.plan_type == "free" else 10000
-    
-    try:
-        with engine.connect() as conn:
-            conn.execute(
-                text("""
-                    INSERT INTO api_users (organization_name, email, api_key, request_limit, plan_type)
-                    VALUES (:o, :e, :k, :l, :p)
-                """),
-                {"o": user.organization_name, "e": user.email, "k": new_key, "l": limit, "p": user.plan_type}
-            )
-            conn.commit()
-        return {"api_key": new_key, "organization": user.organization_name, "limit": limit}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail="Registration failed (Email might already exist)")
+    with engine.connect() as conn:
+        conn.execute(
+            text("INSERT INTO api_users (organization_name, email, api_key, request_limit, plan_type) VALUES (:o, :e, :k, :l, :p)"),
+            {"o": user.organization_name, "e": user.email, "k": new_key, "l": limit, "p": user.plan_type}
+        )
+        conn.commit()
+    return {"api_key": new_key, "limit": limit}
 
 @app.get("/search")
-def search_locations(q: str, user=Depends(verify_api_key)):
-    """Advanced fuzzy search across 580k+ records using SQL Trigram Indexes"""
+def search(q: str, user=Depends(verify_api_key)):
     start_time = time.time()
-    
-    if len(q) < 3:
-        raise HTTPException(status_code=400, detail="Search query must be at least 3 characters")
-    
     with engine.connect() as conn:
+        # Standard ILIKE search (Works even without the pg_trgm extension)
         query = text("""
             SELECT v.village_name as name, d.district_name, s.state_name, 'village' as type
             FROM villages v
@@ -124,28 +107,10 @@ def search_locations(q: str, user=Depends(verify_api_key)):
         results = conn.execute(query, {"q": f"%{q}%"}).mappings().all()
     
     duration = (time.time() - start_time) * 1000
-    log_usage(user['api_key'], "/search", duration, 200)
-    
-    return {
-        "results": [dict(r) for r in results],
-        "meta": {
-            "query": q,
-            "latency_ms": round(duration, 2),
-            "usage": f"{user['current_usage'] + 1}/{user['request_limit']}"
-        }
-    }
+    return {"results": [dict(r) for r in results], "latency": f"{round(duration, 2)}ms"}
 
 @app.get("/states")
 def get_states(user=Depends(verify_api_key)):
-    """Fetch all states from the master table"""
-    start_time = time.time()
     with engine.connect() as conn:
         res = conn.execute(text("SELECT * FROM states ORDER BY state_name")).mappings().all()
-    
-    duration = (time.time() - start_time) * 1000
-    log_usage(user['api_key'], "/states", duration, 200)
     return {"states": [dict(r) for r in res]}
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
