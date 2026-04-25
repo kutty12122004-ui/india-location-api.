@@ -1,17 +1,4 @@
-# India Geographic Hierarchy API
-
-A high-performance API providing access to States, Districts, and Villages of India.
-
-## Tech Stack
-- **Backend:** FastAPI (Python)
-- **Database:** PostgreSQL (Neon Cloud)
-- **Deployment:** Render
-- **Data Volume:** 580,000+ Villages
-
-## Live API Link
-https://india-location-api-y5tw.onrender.com
-
-## Endpoints
-- `GET /states`: Returns all states.
-- `GET /districts/{state_id}`: Returns districts for a specific state.
-- `GET /villages/{district_id}`: Returns all villages in a district.
+🇮🇳 India Location SaaS APIA high-performance, B2B-ready Geographic Data Service providing standardized access to India's administrative hierarchy.
+🚀 OverviewThis project transforms a raw dataset of over 580,000 villages into a production-grade SaaS API. It features high-speed fuzzy search, multi-tenant API key validation, and real-time usage tracking.Live API Link: https://india-location-api-1.onrender.comInteractive API Docs: https://india-location-api-1.onrender.com/docs
+✨ Key FeaturesSub-10ms Search Performance: Utilizes PostgreSQL pg_trgm (Trigram) GIN indexing to search 5.8 Lakh records nearly instantaneously.SaaS Metering System: Real-time request logging and quota enforcement per API key.Standardized Data: Cleaned and normalized hierarchy (State → District → Village).Security: Header-based API Authentication (api-key).
+🛠 Tech StackComponentTechnologyBackendFastAPI (Python)DatabasePostgreSQL (Neon Serverless)IndexingTrigram GIN Index (gin_trgm_ops)InfrastructureRender (Compute), GitHub (CI/CD)SaaS LogicDynamic usage tracking & Rate limiting
