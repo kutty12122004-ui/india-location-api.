@@ -1,58 +1,49 @@
-# 🇮🇳 India Location SaaS API
-**A high-performance, B2B-ready Geographic Data Service providing standardized access to India's administrative hierarchy.**
+# 🇮🇳 India Village Locator API & UI
 
-## 🚀 Overview
-This project transforms a raw dataset of over **580,000 villages** into a production-grade SaaS API. It features high-speed fuzzy search, multi-tenant API key validation, and real-time usage tracking.
-
-* **Live API Link:** [https://india-location-api-1.onrender.com](https://india-location-api-1.onrender.com)
-* **Interactive API Docs:** [https://india-location-api-1.onrender.com/docs](https://india-location-api-1.onrender.com/docs)
+A robust, full-stack geographical search application designed to provide instantaneous access to village-level data across India. This project integrates a cloud-hosted PostgreSQL database, a Python-based FastAPI backend, and a modern JavaScript frontend.
 
 ---
 
-## ✨ Key Features
-* **Sub-10ms Search Performance:** Utilizes PostgreSQL `pg_trgm` (Trigram) GIN indexing to search 5.8 Lakh records nearly instantaneously.
-* **SaaS Metering System:** Real-time request logging and quota enforcement per API key.
-* **Standardized Data:** Cleaned and normalized hierarchy (State → District → Village).
-* **Security:** Header-based API Authentication (`api-key`).
+## 🚀 Live Deployment
+The application is globally accessible at the following URL:
+**[https://india-village-search-2026.netlify.app](https://india-village-search-2026.netlify.app)**
 
 ---
 
-## 🛠 Tech Stack
-| Component | Technology |
-| :--- | :--- |
-| **Backend** | FastAPI (Python) |
-| **Database** | PostgreSQL (Neon Serverless) |
-| **Indexing** | Trigram GIN Index (`gin_trgm_ops`) |
-| **Infrastructure** | Render (Compute), GitHub (CI/CD) |
+## 🛠️ Technical Architecture
+
+This project demonstrates a complete end-to-end software lifecycle, utilizing professional-grade cloud infrastructure:
+
+| Component | Technology | Implementation Role |
+| :--- | :--- | :--- |
+| **Frontend** | HTML5, CSS3, JavaScript (ES6+) | Handles asynchronous API calls and dynamic UI rendering. |
+| **API Backend** | Python / FastAPI | Manages business logic, request validation, and security headers. |
+| **Database** | PostgreSQL (Neon) | Stores and indexes thousands of village, district, and state records. |
+| **Infrastructure** | Render & Netlify | Provides high-availability hosting for the API and static assets. |
 
 ---
 
-## 📡 API Endpoints
+## 🔑 Key Features
 
-### 1. High-Speed Search (Autocomplete Ready)
-`GET /search?q={query}`  
-**Example:** `/search?q=Ami`  
-*Uses GIN indexing to find villages and districts. Includes `usage_stats` in the response to show remaining quota.*
-
-### 2. Administrative Lists
-* `GET /states`: Returns all 36 States and Union Territories.
-* `GET /districts/{state_id}`: Returns all districts for a specific state.
+* **Optimized Search:** Implements efficient SQL queries to retrieve location data with minimal latency.
+* **Secure Communication:** Utilizes custom API key authentication to protect the backend resources.
+* **Responsive Interface:** A mobile-first design ensuring usability across desktops, tablets, and smartphones.
+* **Stateful Feedback:** Provides real-time "Searching..." indicators and error handling for user queries.
 
 ---
 
-## 🔑 Authentication & SaaS Logic
-To access protected endpoints, include your API key in the request header:
-* **Header Name:** `api-key`
-* **Demo Key:** `capstone_demo_2024`
+## 📂 Project Structure
 
-### **How Metering Works:**
-The API validates the key against the `api_users` table in Neon, increments the usage count, and enforces limits (returning `429 Too Many Requests` if the quota is exceeded).
+* `index.html`: The client-side entry point containing the UI and search logic.
+* `main.py`: The FastAPI application handling the server-side routes and database connection.
+* `requirements.txt`: List of Python dependencies for the backend environment.
 
 ---
 
-## 📈 Performance
-* **Village Fuzzy Search (580k+ records):** ~2.07 ms execution time.
-* **Infrastructure:** Serverless compute with auto-scaling capabilities.
+## 💻 Local Development
 
----
-**Capstone Project - 2024**
+To run this project on your local machine:
+
+1. **Clone the repository:**
+   ```bash
+   git clone [https://github.com/kutty12122004-ui/india-location-api.git](https://github.com/kutty12122004-ui/india-location-api.git)
