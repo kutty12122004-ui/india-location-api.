@@ -13,7 +13,7 @@ app = FastAPI(
     version="1.2.0"
 )
 
-# Aggressive CORS to prevent "Failed to fetch" in Swagger UI
+# CORS Fix for Swagger UI
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -35,7 +35,7 @@ def startup_event():
             CREATE TABLE IF NOT EXISTS api_users (
                 id SERIAL PRIMARY KEY,
                 organization_name VARCHAR(255),
-                email VARCHAR(255),
+                email VARCHAR(255) UNIQUE,
                 api_key VARCHAR(100) UNIQUE NOT NULL,
                 plan_type VARCHAR(50) DEFAULT 'free',
                 request_limit INTEGER DEFAULT 1000,
@@ -70,7 +70,6 @@ async def verify_api_key(api_key: str = Header(None, alias="api-key")):
         if user['current_usage'] >= user['request_limit']:
             raise HTTPException(status_code=429, detail="API Limit reached")
         
-        # Increment usage
         conn.execute(
             text("UPDATE api_users SET current_usage = current_usage + 1 WHERE api_key = :k"),
             {"k": api_key}
@@ -86,7 +85,7 @@ def home():
 @app.post("/register")
 def register(user: UserRegistration):
     new_key = f"india_loc_{secrets.token_urlsafe(16)}"
-    limit = 1000 if user.plan_type == "free" else 10000
+    limit = 2000 if user.plan_type != "free" else 1000
     with engine.connect() as conn:
         conn.execute(
             text("""
@@ -96,7 +95,7 @@ def register(user: UserRegistration):
             {"o": user.organization_name, "e": user.email, "k": new_key, "l": limit, "p": user.plan_type}
         )
         conn.commit()
-    return {"api_key": new_key, "message": "Save this key for API access!"}
+    return {"api_key": new_key, "message": "Registration successful!"}
 
 @app.get("/search")
 def search(q: str, user=Depends(verify_api_key)):
