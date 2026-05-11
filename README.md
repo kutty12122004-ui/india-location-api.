@@ -4,13 +4,13 @@ A robust, full-stack geographical search application designed to provide instant
 
 ---
 
-## 🚀 Live Deployment
+##  Live Deployment
 The application is globally accessible at the following URL:
 **[https://india-village-search-2026.netlify.app](https://india-village-search-2026.netlify.app)**
 
 ---
 
-## 🛠️ Technical Architecture
+##  Technical Architecture
 
 This project demonstrates a complete end-to-end software lifecycle, utilizing professional-grade cloud infrastructure:
 
@@ -23,7 +23,7 @@ This project demonstrates a complete end-to-end software lifecycle, utilizing pr
 
 ---
 
-## 🔑 Key Features
+##  Key Features
 
 * **Optimized Search:** Implements efficient SQL queries to retrieve location data with minimal latency.
 * **Secure Communication:** Utilizes custom API key authentication to protect the backend resources.
@@ -32,7 +32,7 @@ This project demonstrates a complete end-to-end software lifecycle, utilizing pr
 
 ---
 
-## 📂 Project Structure
+##  Project Structure
 
 * `index.html`: The client-side entry point containing the UI and search logic.
 * `main.py`: The FastAPI application handling the server-side routes and database connection.
